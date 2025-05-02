@@ -121,10 +121,14 @@ class NeuralNetwork:
         self,
         just_fired,
     ):
-        binary_weights = torch.sign(self.connection_strengths)
+        binary_weights = torch.sign(self.connection_strengths) # full of +- 1
         
         difference = self.time_ms_from_firing.unsqueeze(0) - self.time_ms_from_firing.unsqueeze(1)
-        formularized = -torch.atan(difference - 20) / (torch.pi/2)
+        # difference between last fired and now
+        formularized = -torch.atan((difference - 20)/10)
+        # difference of over 20 is negative (flips direction) otherwise positive
+        # so if diff is over 20s, its ltd, but less than 20s and its ltp
+        # negative diff impossible as masks out the non fired ones, always looks at the receiving one for its inputs
         
         delta_weights = formularized * just_fired * binary_weights * self.update_constant
         self.connection_strengths += delta_weights
@@ -134,18 +138,6 @@ class NeuralNetwork:
         self,
         raw_current,
     ):
-        """
-        1. directly input the inputs (punishment vs game state vs reward, decided outside)
-        2. clamp the neurons
-        3. fire
-            a. find out which neurons need to be fired
-            b. find out the effective output thing
-            c. pass on the
-        4. ltp ltd
-            a. observe which neurons just fired
-            b. look at their inputs respective to them
-            c. adjust the parameters based on stuff
-        """
         self.process_input(raw_current)
         fired = self.fire()
         self.ltp_ltd(fired)
