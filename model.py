@@ -8,12 +8,13 @@ class NeuralNetwork:
     def __init__(
         self,
         num_neurons: int,
-        timestep_duration_ms: float = 0.1,
+        timestep_duration_ms: float = 0.01,
         resting_charge_level: float = -70,
         min_charge_possible: float = -90,
         fire_threshold: float = -55,
         firing_voltage_peak: float = 30,
         recovery_voltage_per_ms: float = -30,
+        update_constant:float = 0.001,
     ):
         self.num_neurons = num_neurons
         self.timestep_duration_ms = timestep_duration_ms
@@ -27,6 +28,8 @@ class NeuralNetwork:
         self.connection_strengths = torch.randn(num_neurons, num_neurons)
         self.time_ms_from_firing = torch.zeros(num_neurons)
         self.grace_status = torch.zeros(num_neurons)
+        
+        self.update_constant = update_constant
 
     def process_input(
         self,
@@ -81,23 +84,26 @@ class NeuralNetwork:
         # print(neuron_inputs)
 
         self.neuron_charges += neuron_inputs
-        
-        grace_recharge = torch.zeros_like(self.neuron_charges)
-        grace_recharge[grace_active] = self.recovery_voltage_per_ms * self.timestep_duration_ms
-        self.neuron_charges += grace_recharge
-        # Neurons in grace recharge back to neutral state
 
         self.grace_status = torch.clamp(
             (self.grace_status - self.timestep_duration_ms), min=0
         )  # all neurons cooldown on grace, but not below 0
 
         # neurons under grace, but their value after is still bigger than -70, get 1 grace frame added back
-        on_grace_over_neutral = (self.neuron_charges > self.resting_charge_level) & (self.grace_status > 0)
+        on_grace_over_neutral = (self.neuron_charges > self.resting_charge_level) & (
+            self.grace_status > 0
+        )
         add_back = torch.zeros_like(self.grace_status)
         add_back[on_grace_over_neutral] = self.timestep_duration_ms
         self.grace_status += add_back
         # this way, neurons that are over the natural resting level that just got their grace decreased get it increased
         # This makes it so that if they were below -70, they'd finally get the 2s timer
+        grace_recharge = torch.zeros_like(self.neuron_charges)
+        grace_recharge[on_grace_over_neutral] = (
+            self.recovery_voltage_per_ms * self.timestep_duration_ms
+        )
+        self.neuron_charges += grace_recharge
+        # Neurons in grace and over neutral recharge back towards neutral state
 
         add_to_grace = (
             torch.ones_like(self.neuron_charges) * 2 * which_ones_fire
@@ -108,13 +114,21 @@ class NeuralNetwork:
         self.neuron_charges = self.neuron_charges.masked_fill(
             which_ones_fire, self.firing_voltage_peak
         )  # neurons that just fired spike to max voltage
-        
+
         return which_ones_fire
 
     def ltp_ltd(
         self,
+        just_fired,
     ):
-        pass
+        binary_weights = torch.sign(self.connection_strengths)
+        
+        difference = self.time_ms_from_firing.unsqueeze(0) - self.time_ms_from_firing.unsqueeze(1)
+        formularized = -torch.atan(difference - 20) / (torch.pi/2)
+        
+        delta_weights = formularized * just_fired * binary_weights * self.update_constant
+        self.connection_strengths += delta_weights
+        
 
     def timed_check(
         self,
@@ -131,16 +145,33 @@ class NeuralNetwork:
             a. observe which neurons just fired
             b. look at their inputs respective to them
             c. adjust the parameters based on stuff
-        """        
+        """
         self.process_input(raw_current)
         fired = self.fire()
-        return fired
+        self.ltp_ltd(fired)
 
 
-test = NeuralNetwork(5)
+num_neurons = 1000
 
-foo = torch.Tensor([1,1,0,0,0])
+test = NeuralNetwork(num_neurons)
 
-for i in range(1000):
-    fired = test.timed_check(foo)
-    print(f"{i}: Charge = {test.neuron_charges} | fired = {fired}")
+foo = torch.randn(num_neurons)
+
+import time
+
+steps = 1000
+
+grr = test.connection_strengths
+start = time.time()
+
+for i in range(steps):
+    test.timed_check(torch.randn(num_neurons))
+
+end = time.time()
+rah = test.connection_strengths
+
+print(
+    f"{end-start}s for {steps*test.timestep_duration_ms} simulation seconds = {(steps*test.timestep_duration_ms)/(end-start)}x speedup"
+)
+
+print(rah-grr)
