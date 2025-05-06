@@ -32,7 +32,7 @@ class NeuralNetwork:
         fire_threshold: float = -55,
         firing_voltage_peak: float = 30,
         recovery_voltage_per_ms: float = -60,
-        update_constant: float = 0.01,
+        update_constant: float = 1,
     ):
         self.num_neurons = num_neurons
         self.timestep_duration_ms = timestep_duration_ms
@@ -158,7 +158,7 @@ class NeuralNetwork:
         delta_weights = (
             formularized * just_fired * binary_weights * self.update_constant
         )
-        # print(delta_weights.sum())
+        print(delta_weights.sum())
         self.connection_strengths += delta_weights
 
     def timed_check(

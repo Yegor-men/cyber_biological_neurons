@@ -160,7 +160,7 @@ class PongGame:
 # ====================================================================================================================
 
 
-from model import NeuralNetwork as NN
+from model_v3 import NeuralNetwork as NN
 import torch
 
 
@@ -175,7 +175,7 @@ class GameState:
         self.ball_above = True
         self.current_state = "observe"
 
-        self.negative_time = 4
+        self.negative_time = 1
         self.positive_time = 1
 
         self.sim_time = 0
