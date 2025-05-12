@@ -175,8 +175,8 @@ class GameState:
         self.ball_above = True
         self.current_state = "observe"
 
-        self.negative_time = 1
-        self.positive_time = 1
+        self.negative_time = 3
+        self.positive_time = 3
 
         self.sim_time = 0
 
@@ -185,6 +185,7 @@ class GameState:
 
     def update_state(
         self,
+        model,
         paddle_hit,
         ball_missed,
         ball_position,
@@ -205,28 +206,28 @@ class GameState:
         else:
             self.current_state = "observe"
 
-        zeros = torch.zeros(self.num_neurons_total)
         if self.current_state == "observe":
-            if self.ball_above:
-                zeros[: (self.num_neurons_train) // 2] = -0.000625 * ball_dist + 1
-                return zeros
-            else:
-                zeros[(self.num_neurons_train) // 2 : self.num_neurons_train] = (
-                    -0.000625 * ball_dist + 1
-                )
-                return zeros
+            model.R = 0
         elif self.current_state == "reward":
-            zeros[: self.num_neurons_train] = 2
-            return zeros
+            model.R = 1
         elif self.current_state == "punish":
-            zeros[: self.num_neurons_train] = torch.randn(self.num_neurons_train)
+            model.R = -1
+
+        zeros = torch.zeros(self.num_neurons_total)
+        if self.ball_above:
+            zeros[: (self.num_neurons_train) // 2] = -0.000625 * ball_dist + 1
+            return zeros
+        else:
+            zeros[(self.num_neurons_train) // 2 : self.num_neurons_train] = (
+                -0.000625 * ball_dist + 1
+            )
             return zeros
 
 
 total_neurons = 500
-neurons_train = 100
+neurons_train = 50
 
-nn = NN(total_neurons, timestep_duration_ms=0.1)
+nn = NN(total_neurons, timestep_length_ms=1, learning_rate=10000)
 
 
 game_thing = GameState(
@@ -234,7 +235,7 @@ game_thing = GameState(
     num_neurons_train=neurons_train,
 )
 
-initial = nn.connection_strengths
+initial = nn.weights.clone()
 
 # Example usage:
 game = PongGame()
@@ -245,27 +246,34 @@ try:
         paddle_hit = game.paddle_hit
         ball_missed = game.ball_missed
         ball_position = game.ball_position
-        ms_passed = nn.timestep_duration_ms
+        ms_passed = nn.timestep_length_ms
         ball_dist = game.ball_distance_x
 
         tensor_thing = game_thing.update_state(
+            nn,
             paddle_hit,
             ball_missed,
             ball_position,
             ms_passed,
             ball_dist,
         )
-        up, down = nn.timed_check(raw_current=tensor_thing)
+        up, down = nn.fire(raw_current=tensor_thing)
         go_up = True if up >= down else False
 
-        game.tick(dt_ms=nn.timestep_duration_ms, move_up=go_up)
+        game.tick(dt_ms=nn.timestep_length_ms, move_up=go_up)
         print(
-            f"time: {game_thing.sim_time:.2f}, up: {up:,}, down: {down:,}, distance: {ball_dist}, state: {game_thing.current_state}, {tensor_thing[:5]}, {tensor_thing[50:55]}"
+            f"time: {game_thing.sim_time:.2f}, up: {up:,}, down: {down:,}, distance: {ball_dist}, state: {game_thing.current_state}, {tensor_thing[0]:.3f}, {tensor_thing[26]:.3f}"
         )
 
 except KeyboardInterrupt:
     game.quit()
 
-    final = nn.connection_strengths
+    final = nn.weights.clone()
 
     print(f"{final-initial}")
+    # print(f"{nn.input_monitoring}")
+    # print(f"{nn.output_monitoring}")
+    print()
+    print(initial)
+    print()
+    print(final)

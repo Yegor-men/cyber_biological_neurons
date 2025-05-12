@@ -1,6 +1,26 @@
 import torch
 from torch import nn
 
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+
+from collections import deque
+
+class FixedSizeQueue:
+    def __init__(self, max_len):
+        self.queue = deque(maxlen=max_len)
+        self.total = 0
+
+    def append(self, value):
+        if len(self.queue) == self.queue.maxlen:
+            oldest = self.queue.popleft()
+            self.total -= oldest
+        self.queue.append(value)
+        self.total += value
+
+    def get_sum(self):
+        return self.total
+
 
 class NeuralNetwork:
     def __init__(
@@ -40,6 +60,9 @@ class NeuralNetwork:
 
         self.R = 0
         # positive reward = good, negative = bad
+        
+        self.fired_above = FixedSizeQueue(100)
+        self.fired_below = FixedSizeQueue(100)
 
     def update_weights(
         self,
@@ -54,7 +77,7 @@ class NeuralNetwork:
     def fire(
         self,
         raw_current: torch.Tensor,
-    ):
+    ) -> tuple[int, int]:
         assert (
             raw_current.shape == self.neuron_charges.shape
         ), f"Raw current should be {self.neuron_charges.shape}"
@@ -87,7 +110,7 @@ class NeuralNetwork:
         # clamps neuron charges to be between the min range and resets the charge of the fired ones
 
         self.last_fired = torch.where(
-            ready_to_fire_bool, torch.zeros_like(self.last_fired), self.last_fired + 1
+            ready_to_fire_bool, torch.zeros_like(self.last_fired), self.last_fired + self.timestep_length_ms/1000
         )
         # TODO change this thing from measuring in time steps to use actual time somehow? maybe?
 
@@ -105,8 +128,18 @@ class NeuralNetwork:
         # makes the row (outputs) to be edited
         self.input_monitoring /= self.input_monitoring.sum()
         self.output_monitoring /= self.output_monitoring.sum()
+        # self.input_monitoring = self.input_monitoring / self.input_monitoring.sum(dim=1, keepdim=True)
+        # self.output_monitoring = self.output_monitoring / self.output_monitoring.sum(dim=1, keepdim=True)
         # normalize both of them as not to make values explode
         # repetitive identical updates play less and less of a role
+        
+        fired_above = ready_to_fire_float[-50:-25].sum().item()
+        fired_below = ready_to_fire_float[-25:].sum().item()
+        
+        self.fired_above.append(fired_above)
+        self.fired_below.append(fired_below)
+        
+        return self.fired_above.get_sum(), self.fired_below.get_sum()
 
 
 # neurons = 5
